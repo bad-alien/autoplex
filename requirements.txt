@@ -1,0 +1,7 @@
+discord.py
+PlexAPI
+requests
+aiohttp
+python-dotenv
+musicbrainzngs
+schedule
