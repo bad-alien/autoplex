@@ -1,6 +1,16 @@
+# Environment
 .env
 .venv/
+
+# Python cache
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# IDE / Tools
+.claude/
 *.png
-tests/.pytest_cache
+
+# Local dev notes
+sessions/
+dev-workflow.md

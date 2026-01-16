@@ -7,6 +7,7 @@ from config import Config
 from clients import clients
 from services.tautulli_service import TautulliService
 from services.plex_service import PlexService
+from services.bass_service import BassService
 
 # Setup Logging
 logging.basicConfig(
@@ -25,6 +26,7 @@ except ValueError as e:
 # Initialize Services
 tautulli_service = TautulliService()
 plex_service = PlexService()
+bass_service = BassService()
 
 # Initialize Bot
 intents = discord.Intents.default()
@@ -278,6 +280,68 @@ async def compare(ctx, artist_name: str, user1: str, user2: str):
     embed.add_field(name="Visual Comparison", value=f"**{user1}**\n`[{make_bar(p1)}]`\n\n**{user2}**\n`[{make_bar(p2)}]`", inline=False)
 
     await ctx.send(embed=embed)
+
+@bot.command()
+async def bassboost(ctx, *, song_title: str):
+    """
+    Downloads a track, boosts the bass using AI, and uploads it.
+    Usage: !plex bassboost "Billie Jean"
+    """
+    await ctx.typing()
+    
+    # 1. Search
+    msg = await ctx.send(f"🔍 Searching for **{song_title}**...")
+    track = plex_service.search_track(song_title)
+    
+    if not track:
+        await msg.edit(content=f"❌ Track '{song_title}' not found in Plex.")
+        return
+    
+    await msg.edit(content=f"⬇️ Found **{track.title}** by {track.originalTitle or track.grandparentTitle}. Downloading...")
+    
+    try:
+        # 2. Download (in thread to be safe, though IO bound)
+        download_path = await asyncio.to_thread(
+            plex_service.download_track, 
+            track, 
+            bass_service.temp_dir
+        )
+        
+        if not download_path:
+            await msg.edit(content="❌ Failed to download file from Plex.")
+            return
+
+        # 3. Process (Heavy CPU - Must run in thread)
+        await msg.edit(content="🎧 Processing audio (AI Separation & Boost)... This may take a minute.")
+        
+        output_path = await asyncio.to_thread(
+            bass_service.process_track,
+            download_path
+        )
+        
+        # 4. Upload
+        await msg.edit(content="⬆️ Uploading boosted track...")
+        
+        # Check file size (Discord limit: 8MB usually, 50MB with Nitro)
+        # We'll just try to upload.
+        try:
+            await ctx.send(
+                content=f"🔊 **{track.title} (Bass Boosted)**", 
+                file=discord.File(output_path)
+            )
+            await msg.delete() # Cleanup status message
+        except discord.HTTPException as e:
+            if e.code == 40005: # Request Entity Too Large
+                await msg.edit(content="❌ The processed file is too large for Discord.")
+            else:
+                await msg.edit(content=f"❌ Upload failed: {e}")
+                
+    except Exception as e:
+        logger.error(f"Bass boost error: {e}")
+        await msg.edit(content=f"❌ An error occurred: {e}")
+    finally:
+        # 5. Cleanup
+        bass_service.cleanup()
 
 if __name__ == "__main__":
     try:

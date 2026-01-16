@@ -1,4 +1,5 @@
 import logging
+import musicbrainzngs
 from clients import clients
 
 logger = logging.getLogger("Autoplex.PlexService")
@@ -154,6 +155,40 @@ class PlexService:
             self.plex.createPlaylist(playlist_name, items=all_top_tracks)
             
         return len(all_top_tracks)
+
+    def search_track(self, query):
+        """
+        Searches for a track by name. Returns the best match or None.
+        """
+        # Strip surrounding quotes that Discord may include
+        query = query.strip().strip('"\'')
+
+        music_libs = [lib for lib in self.plex.library.sections() if lib.type == 'artist']
+
+        for lib in music_libs:
+            results = lib.search(query, libtype='track', limit=1)
+            if results:
+                return results[0]
+        return None
+
+    def download_track(self, track, save_dir):
+        """
+        Downloads the track file to the specified directory.
+        Returns the full path to the downloaded file.
+        """
+        logger.info(f"Downloading track: {track.title}")
+        
+        # Ensure save_dir exists
+        import os
+        os.makedirs(save_dir, exist_ok=True)
+        
+        # download() saves the file to the current working directory or specified path
+        # It usually returns the list of file paths.
+        downloaded_files = track.download(savepath=save_dir)
+        
+        if downloaded_files:
+            return downloaded_files[0]
+        return None
 
     def enrich_jazz_album(self, query):
         """
