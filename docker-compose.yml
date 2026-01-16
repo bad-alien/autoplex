@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  autoplex:
+  autoalex:
     build: .
-    container_name: autoplex
+    container_name: autoalex
     restart: unless-stopped
     env_file:
       - .env

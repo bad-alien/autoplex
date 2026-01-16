@@ -16,6 +16,12 @@ class Config:
     MUSICBRAINZ_APP_VERSION = os.getenv("MUSICBRAINZ_APP_VERSION", "0.1.0")
     MUSICBRAINZ_CONTACT = os.getenv("MUSICBRAINZ_CONTACT", "")
 
+    # Plex Monitor Configuration
+    DISCORD_ALERT_CHANNEL_ID = os.getenv("DISCORD_ALERT_CHANNEL_ID")
+    PLEX_CONTAINER_NAME = os.getenv("PLEX_CONTAINER_NAME", "binhex-plexpass")
+    PLEX_POLL_INTERVAL = int(os.getenv("PLEX_POLL_INTERVAL", "30"))
+    PLEX_ALERT_COOLDOWN = int(os.getenv("PLEX_ALERT_COOLDOWN", "1800"))
+
     @staticmethod
     def validate():
         missing = []

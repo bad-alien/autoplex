@@ -8,6 +8,7 @@ from clients import clients
 from services.tautulli_service import TautulliService
 from services.plex_service import PlexService
 from services.remix_service import RemixService, VALID_STEMS, DEFAULT_GAIN_DB, MAX_GAIN_DB
+from services.plex_monitor import PlexMonitor
 
 # Setup Logging
 logging.basicConfig(
@@ -27,6 +28,13 @@ except ValueError as e:
 tautulli_service = TautulliService()
 plex_service = PlexService()
 remix_service = RemixService()
+plex_monitor = PlexMonitor(
+    plex_url=Config.PLEX_URL,
+    container_name=Config.PLEX_CONTAINER_NAME,
+    poll_interval=Config.PLEX_POLL_INTERVAL,
+    alert_cooldown=Config.PLEX_ALERT_COOLDOWN,
+    alert_channel_id=int(Config.DISCORD_ALERT_CHANNEL_ID) if Config.DISCORD_ALERT_CHANNEL_ID else None,
+)
 
 # Initialize Bot
 intents = discord.Intents.default()
@@ -36,16 +44,31 @@ bot = commands.Bot(command_prefix="!alex ", intents=intents)
 @bot.event
 async def on_ready():
     logger.info(f'Logged in as {bot.user} (ID: {bot.user.id})')
-    
+
     # Initialize Plex Connection
     try:
         clients.initialize_plex()
     except Exception as e:
         logger.error("Could not connect to Plex on startup. Commands requiring Plex will fail.")
-    
+
     # Initialize MusicBrainz
     clients.initialize_musicbrainz()
-    
+
+    # Start Plex Monitor
+    async def send_alert(message: str):
+        """Send alert to configured Discord channel."""
+        if plex_monitor.alert_channel_id:
+            channel = bot.get_channel(plex_monitor.alert_channel_id)
+            if channel:
+                await channel.send(message)
+            else:
+                logger.error(f"Alert channel {plex_monitor.alert_channel_id} not found")
+        else:
+            logger.warning("No alert channel configured - alerts will only be logged")
+
+    plex_monitor.set_alert_callback(send_alert)
+    await plex_monitor.start()
+
     logger.info('Autoalex is ready to serve.')
 
 @bot.event
@@ -93,6 +116,60 @@ async def usage(ctx):
         )
     
     await ctx.send(embed=embed)
+
+
+@bot.command()
+async def status(ctx):
+    """
+    Shows Plex server health status and recent logs if down.
+    """
+    await ctx.typing()
+
+    status_data = await plex_monitor.check_status()
+
+    if status_data["healthy"]:
+        embed = discord.Embed(
+            title="Plex Status",
+            description="Plex is online and responding.",
+            color=discord.Color.green()
+        )
+    else:
+        embed = discord.Embed(
+            title="Plex Status",
+            description=f"Plex is **DOWN**: {status_data['error']}",
+            color=discord.Color.red()
+        )
+
+    # Add monitoring info
+    embed.add_field(
+        name="Monitoring",
+        value="Active" if status_data["monitoring"] else "Stopped",
+        inline=True
+    )
+    embed.add_field(
+        name="Mode",
+        value="Mock (Dev)" if status_data["mock_mode"] else "Production",
+        inline=True
+    )
+    embed.add_field(
+        name="Last Alert",
+        value=status_data["last_alert"],
+        inline=True
+    )
+
+    # Show logs if Plex is down
+    if not status_data["healthy"] and "logs" in status_data:
+        logs = status_data["logs"]
+        if len(logs) > 1000:
+            logs = logs[-1000:] + "\n... (truncated)"
+        embed.add_field(
+            name="Recent Logs",
+            value=f"```\n{logs}\n```",
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
+
 
 @bot.command()
 async def completion(ctx, artist_name: str, user: str = None):
