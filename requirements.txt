@@ -7,3 +7,4 @@ musicbrainzngs
 schedule
 demucs
 pydub
+Pillow

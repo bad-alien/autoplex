@@ -7,7 +7,7 @@ from config import Config
 from clients import clients
 from services.tautulli_service import TautulliService
 from services.plex_service import PlexService
-from services.bass_service import BassService
+from services.remix_service import RemixService, VALID_STEMS, DEFAULT_GAIN_DB, MAX_GAIN_DB
 
 # Setup Logging
 logging.basicConfig(
@@ -26,7 +26,7 @@ except ValueError as e:
 # Initialize Services
 tautulli_service = TautulliService()
 plex_service = PlexService()
-bass_service = BassService()
+remix_service = RemixService()
 
 # Initialize Bot
 intents = discord.Intents.default()
@@ -95,24 +95,12 @@ async def usage(ctx):
     await ctx.send(embed=embed)
 
 @bot.command()
-async def completion(ctx, artist_name: str, arg1: str = None, arg2: str = None):
+async def completion(ctx, artist_name: str, user: str = None):
     """
     Calculates percentage of artist's discography played.
-    Usage: !plex completion "Aphex Twin" [username] [full]
+    Usage: !plex completion "Aphex Twin" [username]
     """
     await ctx.typing()
-    
-    # Parse arguments flexibly
-    user = None
-    show_full = False
-    
-    for arg in [arg1, arg2]:
-        if not arg:
-            continue
-        if arg.lower() == "full":
-            show_full = True
-        else:
-            user = arg
 
     try:
         # We pass tautulli_service to enable user-specific lookups
@@ -136,8 +124,16 @@ async def completion(ctx, artist_name: str, arg1: str = None, arg2: str = None):
     title = f"Artist Completion: {artist}"
     if user:
         title += f" ({user})"
-        
+
     embed = discord.Embed(title=title, color=discord.Color.gold())
+
+    # Download and attach artist thumbnail if available
+    thumb_file = None
+    if data.get('artist_thumb_path'):
+        thumb_path = "/tmp/autoplex_thumb.jpg"
+        if plex_service.download_thumb(data['artist_thumb_path'], thumb_path):
+            thumb_file = discord.File(thumb_path, filename="thumb.jpg")
+            embed.set_thumbnail(url="attachment://thumb.jpg")
     
     # Global Stats
     embed.add_field(name="Total Plays", value=str(total_plays), inline=True)
@@ -153,19 +149,17 @@ async def completion(ctx, artist_name: str, arg1: str = None, arg2: str = None):
     # Separation: 100% completed vs In Progress
     completed_albums = []
     in_progress_albums = []
-    
+
     for album in albums:
         if album['percent'] >= 100:
-            completed_albums.append(album['title'])
+            completed_albums.append(album)  # Keep full album dict for thumbs
         else:
             in_progress_albums.append(album)
             
-    # Limit logic: We prioritize showing In-Progress albums
-    # Discord limit is 25 fields total. 
+    # Discord limit is 25 fields total
     # Used so far: 3 (Stats) + 1 (Visual Bar) + 1 (Header) = 5
-    # Footer might add 1.
-    # Safe limit for albums = 18.
-    limit = 18 if show_full else 6
+    # Safe limit for albums = 18
+    limit = 18
     
     embed.add_field(name="In Progress", value="\u200b", inline=False)
     
@@ -185,14 +179,27 @@ async def completion(ctx, artist_name: str, arg1: str = None, arg2: str = None):
         embed.add_field(name=f"{album['title']} ({album['year']})", value=value_str, inline=False)
         count += 1
         
-    # Show Completed List at bottom
-    if completed_albums:
-        completed_str = ", ".join(completed_albums)
-        if len(completed_str) > 1000: # Truncate if insanely long
-            completed_str = completed_str[:1000] + "..."
-        embed.add_field(name="🏆 Completed Albums", value=completed_str, inline=False)
+    # Show Completed Albums as text list + thumbnail strip
+    files_to_send = [thumb_file] if thumb_file else []
 
-    await ctx.send(embed=embed)
+    if completed_albums:
+        # List album names
+        album_names = ", ".join(a['title'] for a in completed_albums)
+        if len(album_names) > 1000:
+            album_names = album_names[:1000] + "..."
+        embed.add_field(name=f"Completed ({len(completed_albums)})", value=album_names, inline=False)
+
+        # Add thumbnail strip
+        strip_path = "/tmp/autoplex_album_strip.jpg"
+        if plex_service.create_album_strip(completed_albums, strip_path):
+            strip_file = discord.File(strip_path, filename="albums.jpg")
+            files_to_send.append(strip_file)
+            embed.set_image(url="attachment://albums.jpg")
+
+    if files_to_send:
+        await ctx.send(embed=embed, files=files_to_send)
+    else:
+        await ctx.send(embed=embed)
 
 @bot.command()
 async def sync_top(ctx):
@@ -262,7 +269,15 @@ async def compare(ctx, artist_name: str, user1: str, user2: str):
         winner = "🤝 It's a Tie!"
         color = discord.Color.gold()
 
-    embed = discord.Embed(title=f"⚔️ Battle: {data1['artist']}", description=winner, color=color)
+    embed = discord.Embed(title=f"Battle: {data1['artist']}", description=winner, color=color)
+
+    # Download and attach artist thumbnail if available
+    thumb_file = None
+    if data1.get('artist_thumb_path'):
+        thumb_path = "/tmp/autoplex_thumb.jpg"
+        if plex_service.download_thumb(data1['artist_thumb_path'], thumb_path):
+            thumb_file = discord.File(thumb_path, filename="thumb.jpg")
+            embed.set_thumbnail(url="attachment://thumb.jpg")
     
     # Side by Side Stats
     embed.add_field(name=f"👤 {user1}", value=f"**{p1:.1f}%**\n{data1['unique_played']} tracks\n{plays1} plays", inline=True)
@@ -279,69 +294,152 @@ async def compare(ctx, artist_name: str, user1: str, user2: str):
 
     embed.add_field(name="Visual Comparison", value=f"**{user1}**\n`[{make_bar(p1)}]`\n\n**{user2}**\n`[{make_bar(p2)}]`", inline=False)
 
-    await ctx.send(embed=embed)
+    if thumb_file:
+        await ctx.send(embed=embed, file=thumb_file)
+    else:
+        await ctx.send(embed=embed)
 
-@bot.command()
-async def bassboost(ctx, *, song_title: str):
+def parse_remix_args(args: str) -> tuple[str, float, str]:
     """
-    Downloads a track, boosts the bass using AI, and uploads it.
-    Usage: !plex bassboost "Billie Jean"
+    Parse remix command arguments.
+
+    Formats:
+        stem "Song Title"           -> (stem, DEFAULT_GAIN_DB, song)
+        stem 8 "Song Title"         -> (stem, 8, song)
+        stem Song Title             -> (stem, DEFAULT_GAIN_DB, song)
+        stem 8 Song Title           -> (stem, 8, song)
+
+    Returns:
+        (stem, gain_db, song_title)
+    """
+    parts = args.split(maxsplit=2)
+
+    if len(parts) < 2:
+        raise ValueError("Usage: `!plex boost/reduce [stem] [dB?] \"Song Title\"`")
+
+    stem = parts[0].lower()
+
+    if stem not in VALID_STEMS:
+        raise ValueError(f"Invalid stem `{stem}`. Must be one of: {', '.join(VALID_STEMS)}")
+
+    # Check if second part is a number (dB amount)
+    try:
+        gain_db = float(parts[1])
+        # If it parsed as a number, song title is the rest
+        if len(parts) < 3:
+            raise ValueError("Missing song title")
+        song_title = parts[2]
+    except ValueError:
+        # Second part is not a number, so it's part of the song title
+        gain_db = DEFAULT_GAIN_DB
+        song_title = " ".join(parts[1:])
+
+    # Clean up quotes from song title
+    song_title = song_title.strip('"\'')
+
+    if abs(gain_db) > MAX_GAIN_DB:
+        raise ValueError(f"Gain must be between -{MAX_GAIN_DB} and +{MAX_GAIN_DB} dB")
+
+    return stem, gain_db, song_title
+
+
+async def _process_remix(ctx, stem: str, gain_db: float, song_title: str, action: str):
+    """
+    Shared logic for boost and reduce commands.
     """
     await ctx.typing()
-    
+
     # 1. Search
-    msg = await ctx.send(f"🔍 Searching for **{song_title}**...")
+    msg = await ctx.send(f"Searching for **{song_title}**...")
     track = plex_service.search_track(song_title)
-    
+
     if not track:
-        await msg.edit(content=f"❌ Track '{song_title}' not found in Plex.")
+        await msg.edit(content=f"Track '{song_title}' not found in Plex.")
         return
-    
-    await msg.edit(content=f"⬇️ Found **{track.title}** by {track.originalTitle or track.grandparentTitle}. Downloading...")
-    
+
+    artist = track.originalTitle or track.grandparentTitle
+    await msg.edit(content=f"Found **{track.title}** by {artist}. Downloading...")
+
     try:
-        # 2. Download (in thread to be safe, though IO bound)
+        # 2. Download
         download_path = await asyncio.to_thread(
-            plex_service.download_track, 
-            track, 
-            bass_service.temp_dir
+            plex_service.download_track,
+            track,
+            remix_service.temp_dir
         )
-        
+
         if not download_path:
-            await msg.edit(content="❌ Failed to download file from Plex.")
+            await msg.edit(content="Failed to download file from Plex.")
             return
 
-        # 3. Process (Heavy CPU - Must run in thread)
-        await msg.edit(content="🎧 Processing audio (AI Separation & Boost)... This may take a minute.")
-        
-        output_path = await asyncio.to_thread(
-            bass_service.process_track,
-            download_path
+        # 3. Process with AI
+        db_display = f"+{gain_db}" if gain_db > 0 else str(gain_db)
+        await msg.edit(
+            content=f"Processing audio (AI Separation)... {stem} {db_display}dB"
         )
-        
+
+        output_path = await asyncio.to_thread(
+            remix_service.process_track,
+            download_path,
+            stem,
+            gain_db
+        )
+
         # 4. Upload
-        await msg.edit(content="⬆️ Uploading boosted track...")
-        
-        # Check file size (Discord limit: 8MB usually, 50MB with Nitro)
-        # We'll just try to upload.
+        await msg.edit(content="Uploading...")
+
         try:
             await ctx.send(
-                content=f"🔊 **{track.title} (Bass Boosted)**", 
+                content=f"**{track.title}** ({stem.capitalize()} {action})",
                 file=discord.File(output_path)
             )
-            await msg.delete() # Cleanup status message
+            await msg.delete()
         except discord.HTTPException as e:
-            if e.code == 40005: # Request Entity Too Large
-                await msg.edit(content="❌ The processed file is too large for Discord.")
+            if e.code == 40005:
+                await msg.edit(content="The processed file is too large for Discord.")
             else:
-                await msg.edit(content=f"❌ Upload failed: {e}")
-                
+                await msg.edit(content=f"Upload failed: {e}")
+
+    except ValueError as e:
+        await msg.edit(content=str(e))
     except Exception as e:
-        logger.error(f"Bass boost error: {e}")
-        await msg.edit(content=f"❌ An error occurred: {e}")
+        logger.error(f"Remix error: {e}")
+        await msg.edit(content=f"An error occurred: {e}")
     finally:
-        # 5. Cleanup
-        bass_service.cleanup()
+        remix_service.cleanup()
+
+
+@bot.command()
+async def boost(ctx, *, args: str):
+    """
+    Boosts a stem (bass, drums, vocals, other) in a track using AI.
+    Usage: !plex boost bass "Billie Jean"
+           !plex boost vocals 8 "Halo"
+    """
+    try:
+        stem, gain_db, song_title = parse_remix_args(args)
+        # Ensure positive gain for boost
+        gain_db = abs(gain_db)
+        await _process_remix(ctx, stem, gain_db, song_title, "Boost")
+    except ValueError as e:
+        await ctx.send(str(e))
+
+
+@bot.command()
+async def reduce(ctx, *, args: str):
+    """
+    Reduces a stem (bass, drums, vocals, other) in a track using AI.
+    Usage: !plex reduce drums "In the Air Tonight"
+           !plex reduce vocals 10 "Song Title"
+    """
+    try:
+        stem, gain_db, song_title = parse_remix_args(args)
+        # Ensure negative gain for reduce
+        gain_db = -abs(gain_db)
+        await _process_remix(ctx, stem, gain_db, song_title, "Reduce")
+    except ValueError as e:
+        await ctx.send(str(e))
+
 
 if __name__ == "__main__":
     try:

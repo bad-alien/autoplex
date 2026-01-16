@@ -1,45 +1,24 @@
 # Autoplex Commands
 
-All commands use the prefix `!plex`
+Prefix: `!plex`
 
----
+## Stats
+- `usage` - active Plex streams
+- `completion "Artist" [user]` - discography completion %
+- `compare "Artist" user1 user2` - listening battle
 
-### `!plex usage`
-- Shows current Plex streaming activity from Tautulli
-- Displays user, title, device, and quality for each active stream
-- No arguments required
+## Library
+- `sync_top` - sync "Top Rated" playlist [not built]
+- `enrich "Album"` - add MusicBrainz credits [not built]
 
----
+## AI Remix
+Stems: `bass` `drums` `vocals` `other`
 
-### `!plex completion "Artist Name" [username] [full]`
-- Shows what percentage of an artist's discography has been played
-- Optionally specify a username for user-specific stats
-- Add `full` to show all albums instead of top 6
+- `boost [stem] [dB?] "Song"` - amplify stem (default +4dB)
+- `reduce [stem] [dB?] "Song"` - attenuate stem (default -4dB)
 
----
-
-### `!plex compare "Artist Name" user1 user2`
-- Head-to-head comparison of two users' listening progress
-- Shows completion percentage, unique tracks, and total plays
-- Visual progress bars for quick comparison
-
----
-
-### `!plex sync_top`
-- Syncs the "Top Rated" playlist with all 4+ star tracks
-- Scans all music libraries for highly-rated songs
-- Creates the playlist if it doesn't exist
-
----
-
-### `!plex enrich "Album Name"`
-- Enriches album metadata using MusicBrainz
-- Adds artist credits and release info to the Plex summary
-- Useful for jazz albums with multiple instrumentalists
-
----
-
-### `!plex bassboost "Song Title"`
-- AI-powered bass boost using Demucs stem separation
-- Separates track into bass/drums/vocals/other, boosts bass +6dB
-- Auto-compresses to fit Discord's 8MB upload limit
+```
+!plex boost bass "Billie Jean"
+!plex boost vocals 8 "Halo"
+!plex reduce bass 60 "Song"      # backing track (removes bass)
+```

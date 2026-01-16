@@ -1,6 +1,11 @@
 import logging
+import os
+import requests
 import musicbrainzngs
+from PIL import Image
+from io import BytesIO
 from clients import clients
+from config import Config
 
 logger = logging.getLogger("Autoplex.PlexService")
 
@@ -89,7 +94,8 @@ class PlexService:
                     'played': album_played,
                     'total': album_total,
                     'percent': percentage,
-                    'year': album.year or 0
+                    'year': album.year or 0,
+                    'thumb_path': album.thumb
                 })
 
         # Sort albums by Completion Percentage (descending)
@@ -102,6 +108,7 @@ class PlexService:
 
         return {
             'artist': artist.title,
+            'artist_thumb_path': artist.thumb,  # Just the path, we'll download separately
             'user': user,
             'global_percent': global_percentage,
             'unique_played': unique_played,
@@ -109,6 +116,84 @@ class PlexService:
             'total_plays': total_play_count_user,
             'albums': album_stats
         }
+
+    def create_album_strip(self, albums: list, save_path: str, max_albums: int = 8, thumb_size: int = 100) -> bool:
+        """
+        Creates a horizontal strip of album thumbnails.
+
+        Args:
+            albums: List of album dicts with 'thumb_path' key
+            save_path: Where to save the composite image
+            max_albums: Maximum number of albums to include
+            thumb_size: Size of each thumbnail (square)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        albums_with_thumbs = [a for a in albums if a.get('thumb_path')][:max_albums]
+
+        if not albums_with_thumbs:
+            return False
+
+        try:
+            images = []
+            for album in albums_with_thumbs:
+                url = f"{Config.PLEX_URL}{album['thumb_path']}?X-Plex-Token={Config.PLEX_TOKEN}"
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+
+                img = Image.open(BytesIO(response.content))
+                img = img.convert('RGB')
+                img = img.resize((thumb_size, thumb_size), Image.Resampling.LANCZOS)
+                images.append(img)
+
+            if not images:
+                return False
+
+            # Create horizontal strip
+            strip_width = len(images) * thumb_size
+            strip = Image.new('RGB', (strip_width, thumb_size))
+
+            for i, img in enumerate(images):
+                strip.paste(img, (i * thumb_size, 0))
+
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            strip.save(save_path, 'JPEG', quality=90)
+            logger.info(f"Created album strip with {len(images)} albums")
+            return True
+
+        except Exception as e:
+            logger.warning(f"Failed to create album strip: {e}")
+            return False
+
+    def download_thumb(self, thumb_path: str, save_path: str) -> bool:
+        """
+        Downloads a thumbnail from Plex to a local file.
+
+        Args:
+            thumb_path: The Plex thumb path (e.g., /library/metadata/123/thumb/456)
+            save_path: Where to save the downloaded image
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not thumb_path:
+            return False
+
+        try:
+            url = f"{Config.PLEX_URL}{thumb_path}?X-Plex-Token={Config.PLEX_TOKEN}"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            with open(save_path, 'wb') as f:
+                f.write(response.content)
+
+            logger.info(f"Downloaded thumbnail to {save_path}")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to download thumbnail: {e}")
+            return False
 
     def create_playlist_from_rating(self, min_rating=8.0, playlist_name="Top Rated"):
         """
