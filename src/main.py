@@ -216,12 +216,12 @@ async def completion(ctx, artist_name: str, user: str = None):
     embed.add_field(name="Total Plays", value=str(total_plays), inline=True)
     embed.add_field(name="Unique Tracks", value=f"{unique_played} / {total_tracks} ({global_percent:.1f}%)", inline=True)
     
-    # Global Progress Bar
+    # Global Progress Bar (no title)
     bar_length = 20
     filled_length = int(bar_length * global_percent // 100)
     bar = '█' * filled_length + '-' * (bar_length - filled_length)
-    embed.add_field(name="Collection Progress", value=f"`[{bar}]`", inline=False)
-    
+    embed.add_field(name="\u200b", value=f"`[{bar}]`", inline=False)
+
     # Album Breakdown
     # Separation: 100% completed vs In Progress
     completed_albums = []
@@ -232,46 +232,45 @@ async def completion(ctx, artist_name: str, user: str = None):
             completed_albums.append(album)  # Keep full album dict for thumbs
         else:
             in_progress_albums.append(album)
-            
-    # Discord limit is 25 fields total
-    # Used so far: 3 (Stats) + 1 (Visual Bar) + 1 (Header) = 5
-    # Safe limit for albums = 18
-    limit = 18
-    
-    embed.add_field(name="In Progress", value="\u200b", inline=False)
-    
-    count = 0
-    for album in in_progress_albums:
-        if count >= limit: 
-            remaining = len(in_progress_albums) - limit
-            embed.add_field(name="...", value=f"And {remaining} more in-progress...", inline=False)
-            break
-            
-        p = album['percent']
-        mini_bar_len = 10
-        mini_fill = int(mini_bar_len * p // 100)
-        mini_bar = '▓' * mini_fill + '░' * (mini_bar_len - mini_fill)
-        
-        value_str = f"`{mini_bar}` **{p:.0f}%** ({album['played']}/{album['total']})"
-        embed.add_field(name=f"{album['title']} ({album['year']})", value=value_str, inline=False)
-        count += 1
-        
-    # Show Completed Albums as text list + thumbnail strip
+
+    # Show Completed Albums first (right below progress bar)
     files_to_send = [thumb_file] if thumb_file else []
+    strip_file = None
 
     if completed_albums:
+        # Create smaller thumbnail strip (50px thumbnails)
+        # Attached without set_image() so it appears above the embed
+        strip_path = "/tmp/autoalex_album_strip.jpg"
+        if plex_service.create_album_strip(completed_albums, strip_path, thumb_size=50):
+            strip_file = discord.File(strip_path, filename="albums.jpg")
+            files_to_send.append(strip_file)
+
         # List album names
         album_names = ", ".join(a['title'] for a in completed_albums)
         if len(album_names) > 1000:
             album_names = album_names[:1000] + "..."
         embed.add_field(name=f"Completed ({len(completed_albums)})", value=album_names, inline=False)
 
-        # Add thumbnail strip
-        strip_path = "/tmp/autoalex_album_strip.jpg"
-        if plex_service.create_album_strip(completed_albums, strip_path):
-            strip_file = discord.File(strip_path, filename="albums.jpg")
-            files_to_send.append(strip_file)
-            embed.set_image(url="attachment://albums.jpg")
+    # In Progress albums (no header)
+    # Discord limit is 25 fields total
+    # Used so far: 2 (Stats) + 1 (Bar) + 1 (Completed) = 4
+    # Safe limit for albums = 18
+    limit = 18
+    count = 0
+    for album in in_progress_albums:
+        if count >= limit:
+            remaining = len(in_progress_albums) - limit
+            embed.add_field(name="...", value=f"And {remaining} more in-progress...", inline=False)
+            break
+
+        p = album['percent']
+        mini_bar_len = 10
+        mini_fill = int(mini_bar_len * p // 100)
+        mini_bar = '▓' * mini_fill + '░' * (mini_bar_len - mini_fill)
+
+        value_str = f"`{mini_bar}` **{p:.0f}%** ({album['played']}/{album['total']})"
+        embed.add_field(name=f"{album['title']} ({album['year']})", value=value_str, inline=False)
+        count += 1
 
     if files_to_send:
         await ctx.send(embed=embed, files=files_to_send)
@@ -376,14 +375,17 @@ async def compare(ctx, artist_name: str, user1: str, user2: str):
     else:
         await ctx.send(embed=embed)
 
-def parse_remix_args(args: str) -> tuple[str, float, str]:
+DEFAULT_REDUCE_DB = 60  # Effectively removes the stem by default
+
+
+def parse_remix_args(args: str, default_gain: float = DEFAULT_GAIN_DB) -> tuple[str, float, str]:
     """
     Parse remix command arguments.
 
     Formats:
-        stem "Song Title"           -> (stem, DEFAULT_GAIN_DB, song)
+        stem "Song Title"           -> (stem, default_gain, song)
         stem 8 "Song Title"         -> (stem, 8, song)
-        stem Song Title             -> (stem, DEFAULT_GAIN_DB, song)
+        stem Song Title             -> (stem, default_gain, song)
         stem 8 Song Title           -> (stem, 8, song)
 
     Returns:
@@ -408,7 +410,7 @@ def parse_remix_args(args: str) -> tuple[str, float, str]:
         song_title = parts[2]
     except ValueError:
         # Second part is not a number, so it's part of the song title
-        gain_db = DEFAULT_GAIN_DB
+        gain_db = default_gain
         song_title = " ".join(parts[1:])
 
     # Clean up quotes from song title
@@ -506,11 +508,12 @@ async def boost(ctx, *, args: str):
 async def reduce(ctx, *, args: str):
     """
     Reduces a stem (bass, drums, vocals, other) in a track using AI.
-    Usage: !alex reduce drums "In the Air Tonight"
-           !alex reduce vocals 10 "Song Title"
+    Default: -60dB (effectively removes stem). Use lower values for partial reduction.
+    Usage: !alex reduce vocals "Song"        # removes vocals
+           !alex reduce drums 7 "Song"       # partially reduces drums
     """
     try:
-        stem, gain_db, song_title = parse_remix_args(args)
+        stem, gain_db, song_title = parse_remix_args(args, default_gain=DEFAULT_REDUCE_DB)
         # Ensure negative gain for reduce
         gain_db = -abs(gain_db)
         await _process_remix(ctx, stem, gain_db, song_title, "Reduce")
