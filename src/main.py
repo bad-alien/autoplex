@@ -207,7 +207,7 @@ async def completion(ctx, artist_name: str, user: str = None):
     # Download and attach artist thumbnail if available
     thumb_file = None
     if data.get('artist_thumb_path'):
-        thumb_path = "/tmp/autoplex_thumb.jpg"
+        thumb_path = "/tmp/autoalex_thumb.jpg"
         if plex_service.download_thumb(data['artist_thumb_path'], thumb_path):
             thumb_file = discord.File(thumb_path, filename="thumb.jpg")
             embed.set_thumbnail(url="attachment://thumb.jpg")
@@ -267,7 +267,7 @@ async def completion(ctx, artist_name: str, user: str = None):
         embed.add_field(name=f"Completed ({len(completed_albums)})", value=album_names, inline=False)
 
         # Add thumbnail strip
-        strip_path = "/tmp/autoplex_album_strip.jpg"
+        strip_path = "/tmp/autoalex_album_strip.jpg"
         if plex_service.create_album_strip(completed_albums, strip_path):
             strip_file = discord.File(strip_path, filename="albums.jpg")
             files_to_send.append(strip_file)
@@ -351,7 +351,7 @@ async def compare(ctx, artist_name: str, user1: str, user2: str):
     # Download and attach artist thumbnail if available
     thumb_file = None
     if data1.get('artist_thumb_path'):
-        thumb_path = "/tmp/autoplex_thumb.jpg"
+        thumb_path = "/tmp/autoalex_thumb.jpg"
         if plex_service.download_thumb(data1['artist_thumb_path'], thumb_path):
             thumb_file = discord.File(thumb_path, filename="thumb.jpg")
             embed.set_thumbnail(url="attachment://thumb.jpg")

@@ -11,7 +11,7 @@ MAX_GAIN_DB = 100
 
 
 class RemixService:
-    def __init__(self, temp_dir="/tmp/autoplex_processing"):
+    def __init__(self, temp_dir="/tmp/autoalex_processing"):
         self.temp_dir = temp_dir
         os.makedirs(self.temp_dir, exist_ok=True)
         self._check_dependencies()

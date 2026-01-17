@@ -13,7 +13,7 @@ from services.bass_service import BassService
 
 class TestBassService(unittest.TestCase):
     def setUp(self):
-        self.service = BassService(temp_dir="/tmp/test_autoplex_bass")
+        self.service = BassService(temp_dir="/tmp/test_autoalex_bass")
 
     def tearDown(self):
         self.service.cleanup()
@@ -22,7 +22,7 @@ class TestBassService(unittest.TestCase):
     @patch("services.bass_service.AudioSegment")
     def test_process_track(self, mock_audio_segment, mock_subprocess):
         # Mock inputs
-        input_file = "/tmp/test_autoplex_bass/test_song.flac"
+        input_file = "/tmp/test_autoalex_bass/test_song.flac"
         
         # Mock AudioSegment loading and operations
         mock_segment_instance = MagicMock()
@@ -54,7 +54,7 @@ class TestBassService(unittest.TestCase):
     @patch("services.bass_service.AudioSegment")
     def test_process_track_with_normalization(self, mock_audio_segment, mock_subprocess):
         """Test that loud audio gets normalized to prevent clipping."""
-        input_file = "/tmp/test_autoplex_bass/test_song.flac"
+        input_file = "/tmp/test_autoalex_bass/test_song.flac"
 
         # Mock AudioSegment
         mock_segment_instance = MagicMock()
