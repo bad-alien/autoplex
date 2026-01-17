@@ -16,11 +16,12 @@ Prefix: `!alex`
 Stems: `bass`, `drums`, `vocals`, `other`
 
 - `boost [stem] [dB?] "Song"` - amplify stem (default +4dB)
-- `reduce [stem] [dB?] "Song"` - attenuate stem (default -4dB)
+- `reduce [stem] [dB?] "Song"` - remove/attenuate stem (default -60dB removes it)
 
 ### Examples
 ```
 !alex boost bass "Billie Jean"
 !alex boost vocals 8 "Halo"
-!alex reduce bass 60 "Song"      # backing track (removes bass)
+!alex reduce vocals "Song"       # karaoke (removes vocals)
+!alex reduce drums 7 "Song"      # partially reduce drums
 ```

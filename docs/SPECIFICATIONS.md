@@ -29,9 +29,12 @@ A generalized feature allowing users to selectively boost or reduce specific aud
 
 *   **Commands:** `!alex boost`, `!alex reduce`.
 *   **Supported Stems:** `bass`, `drums`, `vocals`, `other`.
+*   **Defaults:**
+    *   `boost`: +4dB (amplify stem)
+    *   `reduce`: -60dB (effectively removes stem; use lower values for partial reduction)
 *   **Pipeline:**
     1.  **Search & Download:** Fetches track from Plex.
-    2.  **AI Separation:** Uses `demucs` to split audio into 4 stems.
+    2.  **AI Separation:** Uses `demucs` (`htdemucs_ft` model) to split audio into 4 stems.
     3.  **Intelligent Mixing:** Uses FFmpeg filter complexes (`volume`, `amix`, `alimiter`) to apply gain and prevent clipping.
     4.  **Delivery:** Uploads processed MP3 (320kbps) to Discord.
 *   **Constraints:** File size limits (8MB standard), CPU usage.
